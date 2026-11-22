@@ -1,0 +1,258 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Functions ----------
+    function signedIn() { return request.auth != null; }
+
+    function userRoles() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles;
+    }
+
+    function hasRole(role) {
+      return signedIn() && role in userRoles();
+    }
+
+    function isStoreOwner(storeId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/stores/$(storeId)).data.ownerId
+             == request.auth.uid;
+    }
+
+    // Post-creation money fields + paymentMethod are immutable across all order updates.
+    function moneyLocked() {
+      return request.resource.data.subtotal       == resource.data.subtotal
+          && request.resource.data.discountAmount == resource.data.discountAmount
+          && request.resource.data.shippingFee    == resource.data.shippingFee
+          && request.resource.data.total         == resource.data.total
+          && request.resource.data.paymentMethod == resource.data.paymentMethod;
+    }
+
+    // ---------- users ----------
+    match /users/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list: if false;
+      // Client only bootstraps CUSTOMER; Admin grants STORE_OWNER via Console (D3).
+      allow create: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.roles == ['CUSTOMER'];
+      // Update profile only; roles is not in the allowlist, so self-escalation is blocked.
+      allow update: if signedIn() && request.auth.uid == uid
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['name','phone','photoUrl']);
+      allow delete: if false;
+    }
+
+    // ---------- stores (P0-2: Store ID = owner UID, 1:1) ----------
+    match /stores/{ownerUid} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+                    && request.auth.uid == ownerUid
+                    && hasRole('STORE_OWNER')
+                    && request.resource.data.ownerId == ownerUid;
+      allow update: if signedIn()
+                    && request.auth.uid == ownerUid
+                    && resource.data.ownerId == ownerUid
+                    && request.resource.data.ownerId == ownerUid
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['name','address','location','status','busyUntil',
+                                   'weeklySchedule','customSchedules',
+                                   'fallbackPerKmFee','updatedAt']);
+      allow delete: if false;
+    }
+
+    // ---------- categories / menu items / option groups (owner writes) ----------
+    match /stores/{ownerUid}/categories/{categoryId} {
+      allow read: if signedIn();
+      allow write: if isStoreOwner(ownerUid);
+    }
+    match /stores/{ownerUid}/menuItems/{itemId} {
+      allow read: if signedIn();
+      allow write: if isStoreOwner(ownerUid);
+    }
+    match /stores/{ownerUid}/menuItems/{itemId}/optionGroups/{groupId} {
+      allow read: if signedIn();
+      allow write: if isStoreOwner(ownerUid);
+    }
+
+    // ---------- vouchers (P0-C: shared counter + redemptions) ----------
+    match /stores/{ownerUid}/vouchers/{voucherId} {
+      allow read: if signedIn();
+      allow create, delete: if isStoreOwner(ownerUid);
+      // Owner edits config; usedCount is not touched.
+      allow update: if isStoreOwner(ownerUid)
+                    && request.resource.data.usedCount == resource.data.usedCount
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['code','type','value','minOrderAmount','validFrom',
+                                   'validTo','maxUses','active']);
+      // Customer: +1 usedCount with audit field, capped at maxUses — runs in the same
+      // transaction as Order + Redemption create.
+      allow update: if signedIn()
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['usedCount','lastRedemptionOrderId'])
+                    && request.resource.data.usedCount
+                         == resource.data.usedCount + 1
+                    && request.resource.data.usedCount <= resource.data.maxUses
+                    && request.resource.data.lastRedemptionOrderId is string
+                    && getAfter(/databases/$(database)/documents/stores/$(ownerUid)/vouchers/$(voucherId)/redemptions/$(request.resource.data.lastRedemptionOrderId)).data != null;
+    }
+
+    match /stores/{ownerUid}/vouchers/{voucherId}/redemptions/{orderId} {
+      allow read: if signedIn()
+                  && (resource.data.userId == request.auth.uid
+                      || isStoreOwner(ownerUid));
+      allow create: if signedIn()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.voucherId == voucherId
+                    && request.resource.data.orderId == orderId
+                    && request.resource.data.storeId == ownerUid
+                    && getAfter(/databases/$(database)/documents/orders/$(orderId))
+                         .data.userId == request.auth.uid
+                    && getAfter(/databases/$(database)/documents/orders/$(orderId))
+                         .data.voucherId == voucherId
+                    && getAfter(/databases/$(database)/documents/orders/$(orderId))
+                         .data.orderStatus == 'PENDING_STORE';
+      allow update, delete: if false;
+    }
+
+    // ---------- cart ----------
+    match /users/{uid}/cartItems/{cartItemId} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ---------- orders (P0-A, P0-B, P0-C, P0-E) ----------
+    match /orders/{orderId} {
+      allow read: if signedIn()
+                  && (resource.data.userId == request.auth.uid
+                      || isStoreOwner(resource.data.storeId));
+
+      function validPaymentPair() {
+        return (request.resource.data.paymentMethod == 'COD'
+                && request.resource.data.paymentStatus == 'COD_PENDING')
+            || (request.resource.data.paymentMethod == 'PREPAID_MOCK'
+                && request.resource.data.paymentStatus == 'PAID');
+      }
+
+      allow create: if signedIn()
+                    && request.resource.data.keys().hasAll([
+                         'userId','storeId','orderStatus','shippingStatus',
+                         'paymentMethod','paymentStatus','subtotal',
+                         'discountAmount','shippingFee','total'])
+                    && (!request.resource.data.keys().hasAny(['voucherId'])
+                        || getAfter(/databases/$(database)/documents/stores/$(request.resource.data.storeId)/vouchers/$(request.resource.data.voucherId)/redemptions/$(orderId)).data != null)
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.storeId is string
+                    && request.resource.data.orderStatus == 'PENDING_STORE'
+                    && request.resource.data.shippingStatus == 'NOT_REQUESTED'
+                    && validPaymentPair()
+                    && request.resource.data.subtotal is number
+                    && request.resource.data.discountAmount is number
+                    && request.resource.data.shippingFee is number
+                    && request.resource.data.total is number
+                    && request.resource.data.subtotal >= 0
+                    && request.resource.data.discountAmount >= 0
+                    && request.resource.data.shippingFee >= 0
+                    && request.resource.data.total >= 0;
+
+      // Kitchen: orderStatus moves, shippingStatus stays.
+      allow update: if isStoreOwner(resource.data.storeId)
+                    && moneyLocked()
+                    && resource.data.shippingStatus == request.resource.data.shippingStatus
+                    && (
+                      (resource.data.orderStatus == 'PENDING_STORE'
+                       && request.resource.data.orderStatus in ['PREPARING','REJECTED'])
+                   || (resource.data.orderStatus == 'PREPARING'
+                       && request.resource.data.orderStatus in ['READY','REJECTED'])
+                   || (resource.data.orderStatus == 'READY'
+                       && resource.data.shippingStatus == 'FAILED'
+                       && request.resource.data.orderStatus == 'REJECTED')
+                    )
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['orderStatus','rejectReason','history','updatedAt']);
+
+      // Pure shipping: orderStatus stays.
+      allow update: if isStoreOwner(resource.data.storeId)
+                    && moneyLocked()
+                    && resource.data.orderStatus == request.resource.data.orderStatus
+                    && (
+                      (resource.data.orderStatus == 'READY'
+                       && resource.data.shippingStatus == 'NOT_REQUESTED'
+                       && request.resource.data.shippingStatus == 'SEARCHING_DRIVER')
+                   || (resource.data.shippingStatus == 'SEARCHING_DRIVER'
+                       && request.resource.data.shippingStatus in ['DRIVER_ASSIGNED','FAILED'])
+                   || (resource.data.shippingStatus == 'FAILED'
+                       && request.resource.data.shippingStatus == 'SEARCHING_DRIVER')
+                   || (resource.data.shippingStatus == 'DRIVER_ASSIGNED'
+                       && request.resource.data.shippingStatus == 'ARRIVED_AT_STORE')
+                   || (resource.data.shippingStatus == 'ARRIVED_AT_STORE'
+                       && request.resource.data.shippingStatus == 'PICKED_UP')
+                   || (resource.data.shippingStatus == 'PICKED_UP'
+                       && request.resource.data.shippingStatus == 'DELIVERING')
+                   || (resource.data.shippingStatus == 'DELIVERING'
+                       && resource.data.shippingStatus == 'DELIVERED')
+                    )
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['shippingStatus','driver','history','updatedAt']);
+
+      // Delivered: DELIVERING + READY → DELIVERED + COMPLETED (P0-B).
+      allow update: if isStoreOwner(resource.data.storeId)
+                    && moneyLocked()
+                    && resource.data.orderStatus == 'READY'
+                    && resource.data.shippingStatus in ['DELIVERING','DELIVERED']
+                    && request.resource.data.orderStatus == 'COMPLETED'
+                    && request.resource.data.shippingStatus == 'DELIVERED'
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['orderStatus','shippingStatus','history','updatedAt']);
+
+      // No driver found: reject order (FAILED + READY → REJECTED + NOT_REQUESTED).
+      allow update: if isStoreOwner(resource.data.storeId)
+                    && moneyLocked()
+                    && resource.data.orderStatus == 'READY'
+                    && resource.data.shippingStatus == 'FAILED'
+                    && request.resource.data.orderStatus == 'REJECTED'
+                    && request.resource.data.shippingStatus == 'NOT_REQUESTED'
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['orderStatus','shippingStatus','rejectReason','history','updatedAt']);
+
+      // Refund: only prepaid + rejected orders (P0-E). COD can never be refunded.
+      allow update: if isStoreOwner(resource.data.storeId)
+                    && moneyLocked()
+                    && resource.data.orderStatus == 'REJECTED'
+                    && resource.data.paymentMethod == 'PREPAID_MOCK'
+                    && resource.data.paymentStatus == 'PAID'
+                    && request.resource.data.paymentStatus == 'REFUNDED'
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['paymentStatus','refundedAt','history','updatedAt']);
+    }
+
+    // ---------- order lines (subcollection; does not inherit order rules) ----------
+    match /orders/{orderId}/lines/{lineId} {
+      allow read: if signedIn()
+                  && (get(/databases/$(database)/documents/orders/$(orderId)).data.userId
+                        == request.auth.uid
+                      || isStoreOwner(get(/databases/$(database)/documents/orders/
+                                          $(orderId)).data.storeId));
+      allow create: if signedIn()
+                    && getAfter(/databases/$(database)/documents/orders/$(orderId))
+                         .data.userId == request.auth.uid
+                    && getAfter(/databases/$(database)/documents/orders/$(orderId))
+                         .data.orderStatus == 'PENDING_STORE'
+                    && request.resource.data.orderId == orderId
+                    && request.resource.data.linePrice >= 0;
+      allow update, delete: if false;
+    }
+
+    // ---------- ratings (P1-4: owner-only, one per order, create-only) ----------
+    match /ratings/{orderId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.stars >= 1
+                    && request.resource.data.stars <= 5
+                    && get(/databases/$(database)/documents/orders/$(orderId))
+                         .data.orderStatus == 'COMPLETED'
+                    && get(/databases/$(database)/documents/orders/$(orderId))
+                         .data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}
