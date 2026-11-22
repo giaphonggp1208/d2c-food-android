@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "731045541352",
+    "project_id": "android-app-final-e260e",
+    "storage_bucket": "android-app-final-e260e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:731045541352:android:25770d7c7b8065f457e05d",
+        "android_client_info": {
+          "package_name": "com.d2cfood.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD6i2SVa6D5FG3WErw0l6nNCQzF75M0Xcs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
