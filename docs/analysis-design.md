@@ -264,8 +264,8 @@ flowchart TB
 
     FS[(Firestore)]
     RULES[Security Rules]
-    LOCAL[Local notification<br/>(không dùng FCM)]
-    EXT[(Mock tài xế<br/>mô phỏng trong app)]
+    LOCAL["Local notification<br/>(không dùng FCM)"]
+    EXT["Mock tài xế<br/>mô phỏng trong app"]
 
     CP1 & CP2 --> CP3 --> CP4
     CP4 --> CP7 & CP6
@@ -477,7 +477,7 @@ erDiagram
         string name
         string email
         string phone
-        list roles "[\"CUSTOMER\"] | [\"CUSTOMER\",\"STORE_OWNER\"]"
+        list roles "CUSTOMER hoặc CUSTOMER + STORE_OWNER"
     }
     STORES {
         string storeId PK
