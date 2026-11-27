@@ -15,13 +15,13 @@ Tài liệu kèm sơ đồ Mermaid. Bản này là **bản hợp nhất chính t
 | D2 | Xác thực | Firebase Auth: **Email/Password là đường demo chính** + Google Sign-In qua Credential Manager (tuỳ chọn) |
 | D3 | Phân quyền | Không Custom Claims. `users.roles` + `stores/{ownerUid}.ownerId` kiểm tra trong Firestore Security Rules; trong đồ án Admin cấp `STORE_OWNER` và tạo Store thủ công qua Firebase Console; client không tự cấp quyền |
 | D4 | Vận chuyển | `ShippingProvider` + `MockShippingProvider` chạy **trong app** (chế độ demo); giao diện mô phỏng tài xế có kiểm soát. Không gọi API thật (cần key + webhook + billing) |
-| D5 | Bản đồ & khoảng cách | **Maps SDK + Google Maps Platform không dùng** (yêu cầu billing). Dùng **OpenStreetMap/OSM** hiển thị + khoảng cách đường thẳng (haversine) cho báo giá mock; cho phép nhập thủ công. |
+| D5 | Bản đồ & khoảng cách | **VIETMAP Android Maps SDK + Tilemap key giới hạn quota** để hiển thị bản đồ Việt Nam. Báo giá trong scope dùng **Haversine hoặc km nhập thủ công**; Route/Matrix/Autocomplete/Place API thật không gọi trực tiếp từ Android vì Services key không được nhúng vào APK. |
 | D6 | Thanh toán | COD + "thanh toán trước (giả lập)" chỉ là các trường `paymentMethod` / `paymentStatus` **nhúng trong Order** (không document Payment riêng, không ví nội bộ). Hoàn tiền = `PAID → REFUNDED` khi đơn bị từ chối + thông báo |
 | D7 | Thông báo | **Không triển khai server push** — FCM vẫn miễn phí nhưng không có Cloud Functions/backend để gửi sự kiện. Dùng **local notification** phát từ app khi Firestore listener (còn hoạt động) nhận thay đổi; **không đảm bảo khi app bị kill** (kỳ vọng đã hạ ở NFR-02) |
 | D8 | Nghiệp vụ nhạy cảm (tiền, voucher) | Chạy **phía client** kèm **Firestore transaction** đọc lại giá menu hiện hành; Security Rules chặn sửa trường tiền sau khi tạo và kiểm tra cấu trúc/kiểu dữ liệu. **Giới hạn đã biết**: client bị sửa still có thể khai báo sai tiền lúc tạo đơn — chấp nhận có kiểm soát, ghi rõ khi bảo vệ |
 | D9 | Ảnh món ăn | **Cloud Storage không khả dụng cho project mới trên Spark** (đã kiểm chứng trang Firebase Pricing). Đóng gói bộ ảnh mẫu trong `assets`/`drawable`; chủ quán chọn ảnh có sẵn; Firestore chỉ lưu tên asset |
 
-**Đánh đổi đã cân nhắc (trình bày khi bảo vệ):** không có Cloud Functions nghĩa là (1) không thể giữ API key tuyệt đối ngoài app — nhưng vì không gọi API thật của đối tác/Google Maps nên không có key cần giữ; (2) tiền và voucher được tính ở client — giảm thiểu bằng Firestore transaction + Rules, nhưng **không loại bỏ được hoàn toàn** việc client khai báo sai tiền lúc tạo đơn (giới hạn bảo mật của kiến trúc không backend); (3) không có server đẩy FCM — thay bằng local notification chỉ hoạt động khi app còn tiến trình; (4) Cloud Storage không dùng được trên Spark — ảnh món ăn đóng gói trong app; (5) vai trò `STORE_OWNER` và Store demo do Admin cấp thủ công qua Firebase Console. Đây là phương án phù hợp điều kiện đồ án (không billing) và vẫn demo được toàn bộ 13 chức năng Must.
+**Đánh đổi đã cân nhắc (trình bày khi bảo vệ):** không có Cloud Functions nghĩa là (1) không thể giữ API key tuyệt đối ngoài app — VIETMAP Tilemap key chỉ được giới hạn quota và chấp nhận khả năng bị trích xuất; Services key cho Route/Matrix/Autocomplete/Place không bao giờ nằm trong app; (2) tiền và voucher được tính ở client — giảm thiểu bằng Firestore transaction + Rules, nhưng **không loại bỏ được hoàn toàn** việc client khai báo sai tiền lúc tạo đơn (giới hạn bảo mật của kiến trúc không backend); (3) không có server đẩy FCM — thay bằng local notification chỉ hoạt động khi app còn tiến trình; (4) Cloud Storage không dùng được trên Spark — ảnh món ăn đóng gói trong app; (5) vai trò `STORE_OWNER` và Store demo do Admin cấp thủ công qua Firebase Console. Đây là phương án phù hợp điều kiện đồ án và vẫn demo được 13 chức năng Must.
 
 ---
 
@@ -57,14 +57,14 @@ Hệ thống cho phép quán ăn nhận đơn **trực tiếp từ khách hàng*
 - M13. "Đặt lại đơn này" từ lịch sử đơn giao thành công
 
 **Should have (dư sức thì làm sau Must):**
-- S1. Hiển thị trên bản đồ OSM điểm lấy/trả + trạng thái tài xế
+- S1. Hiển thị trên **VIETMAP Android Maps SDK** điểm lấy/trả + trạng thái tài xế
 - S2. Quản lý tồn kho từng món (hết món tự ẩn khỏi thực đơn)
 - S3. Thống kê cơ bản cho chủ quán (doanh thu, đơn theo ngày)
 
 **Won't have (giới hạn scope — ghi rõ để bảo vệ):**
 - W1. Ví điện tử thật / cổng thanh toán thật (chỉ `paymentStatus` giả lập)
 - W2. Chat khách ↔ quán / tài xế (chỉ hiển thị SĐT)
-- W3. Gọi API thật của AhaMove/Lalamove và Google Maps Platform (yêu cầu billing/key — ngoài scope)
+- W3. Gọi API thật của AhaMove/Lalamove; gọi VIETMAP Route/Matrix/Autocomplete/Place API trực tiếp từ Android (Services key phải nằm phía server — ngoài scope Spark)
 - W4. Một tài khoản chủ quán sở hữu nhiều quán (1:1 trong đồ án; đa chi nhánh là hướng phát triển)
 - W5. Push server-side thật (FCM cần backend để gửi; thay bằng local notification)
 - W6. Hệ thống ví/tiền tệ nội bộ và hoàn tiền về ngân hàng
@@ -86,7 +86,7 @@ Hệ thống cho phép quán ăn nhận đơn **trực tiếp từ khách hàng*
 | FR-04 | Chủ quán tạo voucher: loại % hoặc số tiền cố định, điều kiện đơn tối thiểu, hạn dùng, số lượt tối đa | Chủ quán | Must | §1 |
 | FR-05 | Khách nhập mã voucher khi đặt; hệ thống kiểm tra điều kiện trước khi tính giảm giá | Khách | Must | §1 |
 | FR-06 | Khách thêm món vào giỏ với cấu hình tùy chọn + ghi chú; hai dòng cấu hình khác nhau của cùng món hiển thị riêng biệt | Khách | Must | §2, M3 |
-| FR-07 | Khách nhập địa chỉ nhận hàng → hệ thống tính **khoảng cách đường thẳng (haversine)** nếu có toạ độ (hoặc cho nhập km thủ công) và hiển thị **phí ship ước tính** theo đơn giá/km của quán, trước khi xác nhận đặt. Lưu ý: haversine **không phải** km đường bộ thực tế — giới hạn ghi rõ ở D5/§10 | Khách | Must | §2, M4 |
+| FR-07 | Khách nhập địa chỉ nhận hàng → hệ thống hiển thị vị trí trên VIETMAP và tính **khoảng cách đường thẳng (haversine)** nếu có toạ độ (hoặc cho nhập km thủ công), sau đó hiển thị **phí ship ước tính** theo đơn giá/km của quán. Haversine **không phải** khoảng cách đường bộ thực tế; Route API thật nằm ngoài scope | Khách | Must | §2, M4, D5 |
 | FR-08 | Tổng tiền = (tiền món + tiền topping) − giảm giá + phí ship; giảm giá không áp lên phí ship; tính toán lặp lại tại thời điểm đặt | Hệ thống | Must | §2, M5 |
 | FR-09 | Đơn mới phát chuông/thông báo tại thiết bị quán; chủ quán "Xác nhận nhận đơn" → khách nhận thông báo "Quán đang chuẩn bị món" | Chủ quán | Must | §3, M6 |
 | FR-10 | Màn hình bếp hiển thị yêu cầu đặc biệt của khách nổi bật (màu/kích thước lớn) | Chủ quán | Must | §3, M7 |
@@ -100,7 +100,7 @@ Hệ thống cho phép quán ăn nhận đơn **trực tiếp từ khách hàng*
 | FR-18 | Sau khi đơn "Giao thành công", khách chấm 1–5 sao + nhận xét; chủ quán xem danh sách đánh giá | Khách | Must | §5, M12 |
 | FR-19 | Khách mở lịch sử đơn, chọn đơn giao thành công, bấm "Đặt lại đơn này" → các món + cấu hình được nạp lại vào giỏ | Khách | Must | §5, M13 |
 | FR-20 | Khách chọn COD hoặc "thanh toán trước" (chỉ đặt `paymentMethod`/`paymentStatus`, không phải ví); đơn từ chối → `paymentStatus` chuyển `PAID → REFUNDED` | Khách | Must | D6 |
-| FR-21 | Xem trạng thái tài xế trên bản đồ OSM (điểm lấy/trả + mốc trạng thái) | Khách | Should | S1 |
+| FR-21 | Xem trạng thái tài xế trên **VIETMAP Android Maps SDK** (marker điểm lấy/trả + marker tài xế mô phỏng + mốc trạng thái) | Khách | Should | S1, D5 |
 | FR-22 | Tồn kho từng món: đặt số lượng còn, hết tự ẩn khỏi thực đơn | Chủ quán | Should | S2 |
 | FR-23 | Dashboard doanh thu/đơn hàng theo ngày cho chủ quán | Chủ quán | Should | S3 |
 
@@ -111,7 +111,7 @@ Hệ thống cho phép quán ăn nhận đơn **trực tiếp từ khách hàng*
 | NFR-01 | **Realtime ≤ 3 giây**: thay đổi trạng thái đơn ở một thiết bị hiển thị ở thiết bị kia trong ≤ 3s | Demo 2 máy (quán + khách) đặt cạnh nhau |
 | NFR-02 | **Local notification** đến khách khi Firestore listener đang hoạt động (app foreground hoặc background còn tiến trình). **Không cam kết** khi app bị kill hoặc thiết bị mất mạng — giới hạn ghi rõ ở D7/§10, không gọi đây là "push". Trên Android 13+ xin quyền `POST_NOTIFICATIONS` runtime, tạo notification channel; **chỉ phát khi có transition mới** (so snapshot trước/sau) để không phát lại trạng thái cũ khi listener khởi tạo/reconnect | Demo để app khách ở background (tiến trình còn sống), đổi trạng thái |
 | NFR-03 | **Bảo mật dữ liệu**: Security Rules theo vai trò — kiểm tra role khi tạo Store, chặn sửa `ownerId`, giới hạn field theo từng transition (`affectedKeys()`), kiểm tra chủ đơn khi đánh giá; client không sửa được trường tiền sau khi tạo | File rules + kịch bản thử truy cập chéo + test bằng Firebase Emulator Suite |
-| NFR-04 | **Không có API key bên thứ ba trong app** (không gọi API thật của đối tác/Google Maps) | Kiểm tra APK; trình bày lý do dùng mock |
+| NFR-04 | **Services API key không nằm trong app**: Android chỉ dùng Tilemap key giới hạn quota cho VIETMAP Maps SDK; không gọi Route/Matrix/Autocomplete/Place API trực tiếp. | Kiểm tra APK và cấu hình VIETMAP Console; trình bày ranh giới Tilemap key/Services key |
 | NFR-05 | **Sẵn sàng đa đối tác**: thêm 1 hãng vận chuyển mới = viết thêm 1 class implement `ShippingProvider`, không sửa luồng nghiệp vụ | Cấu trúc code + sơ đồ thành phần |
 | NFR-06 | **Hiệu năng**: màn danh sách món mở ≤ 2s với 50 món (cache + phân trang Firestore) | Demo thực tế |
 | NFR-07 | **Khả dụng offline tối thiểu**: xem giỏ hàng và menu đã cache khi mất mạng; thao tác đặt báo lỗi rõ ràng | Demo bật máy bay |
@@ -209,13 +209,13 @@ flowchart LR
         RULES["Security Rules<br/>(phân quyền + ràng buộc tiền)"]
     end
 
-    OSM["OpenStreetMap<br/>(bản đồ, optional)"]
+    VIETMAP["VIETMAP Android Maps SDK<br/>Tilemap key (limited quota)"]
     MOCK["MockShippingProvider<br/>(trong app)"]
 
     UI --> VM --> DOM --> DAT
     DAT --> AUTH & FS & RULES
     DAT --> MOCK
-    UI --> OSM
+    UI --> VIETMAP
     FS -. "onSnapshot realtime" .-> DAT
 ```
 
@@ -226,17 +226,18 @@ flowchart LR
 | Tính tiền, kiểm tra/trừ voucher | Cloud Function | **Client + Firestore transaction**; Rules đảm bảo trường tiền bất biến sau khi tạo |
 | Gửi thông báo khi đổi trạng thái | Cloud Function gọi FCM | **Local notification** từ chính app khi listener nhận thay đổi |
 | Gọi đối tác vận chuyển | Cloud Function giữ key | **MockShippingProvider trong app** |
-| Báo giá khoảng cách | Cloud Function + Routes API | **Haversine / nhập km thủ công**, không cần billing |
-| Bản đồ | Maps SDK thật | **OSM** (hoặc ẩn nếu không cần) |
+| Khoảng cách và báo giá | Cloud Function + Routes API | **MapRepository + Haversine / nhập km thủ công**, chỉ là phí ship ước tính |
+| Bản đồ | Maps SDK thật | **VIETMAP Android Maps SDK + Tilemap key giới hạn quota**; nhúng `MapView` vào Compose bằng `AndroidView` |
+| VIETMAP Route/Matrix/Place | Services key phía backend | **Ngoài scope Spark**; không nhúng Services key vào APK |
 
 ### 5.2 Tầng trong app (chi tiết từng unit)
 
 | Tầng | Thành phần | Nhiệm vụ | Phụ thuộc |
 |---|---|---|---|
-| UI | `StoreListScreen`, `MenuScreen`, `ItemCustomizeSheet`, `CartScreen`, `CheckoutScreen`, `OrderTrackingScreen`, `RatingDialog` (khách); `StoreDashboard`, `MenuEditorScreen`, `VoucherEditorScreen`, `IncomingOrderAlert`, `KitchenOrderCard`, `ShipButton` (quán) | Vẽ trạng thái, bắt sự kiện; không chứa nghiệp vụ | ViewModel |
+| UI | `StoreListScreen`, `MenuScreen`, `ItemCustomizeSheet`, `CartScreen`, `CheckoutScreen`, `OrderTrackingScreen`, `RatingDialog` (khách); `StoreDashboard`, `MenuEditorScreen`, `VoucherEditorScreen`, `IncomingOrderAlert`, `KitchenOrderCard`, `ShipButton`, `VietmapMapView` (quán/khách) | Vẽ trạng thái, bắt sự kiện; không chứa nghiệp vụ; nhúng VIETMAP `MapView` qua `AndroidView` | ViewModel |
 | ViewModel | `CartViewModel`, `CheckoutViewModel`, `OrderTrackingViewModel`, `MenuEditorViewModel`, `StoreOrderViewModel`… | Giữ UI state bằng StateFlow; gọi UseCase | Domain |
-| Domain | UseCase: `AddToCart`, `ApplyVoucher`, `PlaceOrder`, `AcceptOrder`, `RejectOrder`, `CallShipper`, `Reorder`; interface `ShippingProvider`; hàm thuần `calculateOrderTotal(cart, voucher, shippingFee)` | Nghiệp vụ thuần, unit test được không cần Android | Không phụ thuộc framework |
-| Data | `AuthRepository`, `MenuRepository`, `CartRepository`, `OrderRepository`, `VoucherRepository`, `StoreSettingsRepository`, `ShippingRepository`; triển khai Firestore + Security Rules; `MockShippingProvider` (implement `ShippingProvider`) | Nói chuyện với Firebase, map DTO ↔ Domain model | Firebase SDK |
+| Domain | UseCase: `AddToCart`, `ApplyVoucher`, `PlaceOrder`, `AcceptOrder`, `RejectOrder`, `CallShipper`, `Reorder`; interface `ShippingProvider`; interface `MapRepository`; hàm thuần `calculateOrderTotal(cart, voucher, shippingFee)` và `calculateHaversineDistance(origin, destination)` | Nghiệp vụ thuần, unit test được không cần Android/VIETMAP | Không phụ thuộc framework |
+| Data | `AuthRepository`, `MenuRepository`, `CartRepository`, `OrderRepository`, `VoucherRepository`, `StoreSettingsRepository`, `ShippingRepository`, `MapRepository`; triển khai Firestore + Security Rules; `MockShippingProvider`; `VietmapMapAdapter` | Nói chuyện với Firebase/VIETMAP SDK, map DTO ↔ Domain model | Firebase SDK + VIETMAP Maps SDK |
 
 ### 5.3 Sơ đồ thành phần
 
@@ -952,12 +953,69 @@ service cloud.firestore {
 
 ---
 
-## 9. Thứ tự triển khai(roadmap 4 phase)
+## 9. Thứ tự triển khai và dependency map
 
-1. **phase 1 — Xương sống:** dựng dự án Kotlin + Compose + Firebase (Auth, Firestore), model Domain + `PricingCalculator` + unit test công thức tiền; **viết Security Rules đầy đủ + test bằng Firebase Emulator Suite** (kịch bản: tự tạo store bị chặn, 2 khách tranh voucher cuối, sửa tiền bị chặn, refund sai điều kiện bị chặn). Kết quả: đăng nhập 2 vai trò, menu hiển thị, ảnh mẫu từ assets.
-2. **phase 2 — Đặt hàng:** giỏ tách dòng (M3) → checkout + phí ship haversine/nhập tay (M4) → transaction tạo đơn đọc lại giá menu + redemption voucher (M5, P0-C) → đơn đổ về máy quán kèm chuông (M6).
-3. **phase 3 — Vận hành quán & shipper:** màn bếp (M7), từ chối + refund PAID→REFUNDED theo rule riêng (M8, P0-E), trạng thái quán/lịch (M9), `MockShippingProvider` + vòng đời tài xế qua rule vận chuyển (M10).
-4. **phase 4 — Hoàn thiện:** local notification từng mốc (M11, kịch bản demo app còn tiến trình), đánh giá (M12), đặt lại đơn (M13), Should-have (S1–S3), quay video theo bảng 8.1, gói nộp.
+### 9.1 Trạng thái hiện tại
+
+| Hạng mục | Trạng thái |
+|---|---|
+| Phase 1 — Android + Compose + Firebase Auth/Firestore + Rules | **Hoàn tất**; build xanh, APK đã chạy, 29/29 Rules tests pass |
+| VIETMAP SDK spike | Chưa làm |
+| Cart/checkout/order transaction | Chưa làm |
+| Store operation/kitchen workflow | Chưa làm |
+| MockShippingProvider/tracking | Chưa làm |
+| Local notification | Chưa làm |
+| Rating/reorder/demo package | Chưa làm |
+
+### 9.2 VIETMAP spike — phải làm trước các màn phụ thuộc bản đồ
+
+1. Đăng ký VIETMAP, tạo **Tilemap key** và đặt quota demo.
+2. Thêm Android Maps SDK vào một branch/spike riêng.
+3. Nhúng `MapView` vào Jetpack Compose bằng `AndroidView`.
+4. Chạy trên emulator API 37, xác nhận map render và không crash lifecycle.
+5. Kiểm tra APK không chứa Services key.
+6. Nếu SDK không tương thích, giữ `MapRepository` interface và dùng màn map mock làm fallback.
+
+Spike chỉ là cổng kiểm chứng SDK, không chặn các thành viên làm Domain, Cart, Menu và Order.
+
+### 9.3 Các phase có thể làm song song trước VIETMAP
+
+| Phase/module | Có thể bắt đầu trước VIETMAP? | Điều kiện giao tiếp |
+|---|---:|---|
+| Menu detail + option groups | Có | Dùng Domain `MenuItem`, `OptionGroup`; không import VIETMAP |
+| Cart tách dòng | Có | Dùng `CartRepository` và `CartItem` |
+| PricingCalculator + voucher | Có | Nhận `shippingFee` từ `ShippingQuote`; chưa cần biết nguồn map |
+| Order/OrderLines transaction | Có | Checkout nhận `ShippingQuote` interface/mock |
+| Store dashboard + kitchen | Có | Chỉ phụ thuộc Firestore OrderRepository + Rules |
+| MockShippingProvider | Có | Cập nhật state machine, không phụ thuộc bản đồ |
+| Local notification | Có | Lắng nghe Firestore transition; không phụ thuộc map |
+| VIETMAP Map screen | Không | Chờ spike SDK + Tilemap key |
+| Tracking marker tài xế | Sau spike | Dùng `MapRepository`/adapter, dữ liệu driver vẫn là mock |
+| Route/Autocomplete/Place API thật | Không thuộc scope | Cần backend giữ Services key |
+
+### 9.4 Roadmap chính thức
+
+1. **Phase 1 — Xương sống: hoàn tất.** Android Kotlin + Compose, Firebase Auth/Firestore, Repository, Security Rules, 29 test emulator.
+2. **Phase 1.5 — VIETMAP SDK spike.** Map screen tối thiểu, Tilemap key giới hạn quota, `AndroidView` lifecycle, fallback nếu SDK lỗi.
+3. **Phase 2 — Menu và Cart.** Menu detail, option groups, cart tách dòng, `PricingCalculator`, voucher redemption transaction. Có thể giao cho thành viên khác làm song song với Phase 1.5.
+4. **Phase 3 — Checkout và Order.** `ShippingQuote`, tọa độ demo, Haversine, phí ship ước tính, Order + OrderLines transaction, COD/prepaid mock. Chỉ cần `MapRepository` interface, chưa cần map render để bắt đầu.
+5. **Phase 4 — Store operation.** Dashboard, accept/reject, kitchen screen, READY, trạng thái mở/bận/đóng và lịch. Có thể làm song song với Phase 2.
+6. **Phase 5 — Mock delivery.** `MockShippingProvider`, driver info, các transition shipping, realtime tracking. Phần logic có thể làm trước; marker bản đồ tích hợp sau khi Phase 1.5 pass.
+7. **Phase 6 — VIETMAP tracking.** Marker quán/khách/tài xế, camera, mô phỏng vị trí tài xế. Chỉ dùng Tilemap key; không gọi Services API.
+8. **Phase 7 — Notification và hậu mãi.** Local notification + `POST_NOTIFICATIONS`, rating, reorder, regression Rules tests.
+9. **Phase 8 — Đóng gói.** Test hai thiết bị, quay video, cập nhật báo cáo/slides, hoàn thiện README và phân công.
+
+### 9.5 Phân chia nhóm đề xuất
+
+| Thành viên | Module | Có thể bắt đầu |
+|---|---|---|
+| TV1 | Menu detail, option groups, MenuRepository | Ngay bây giờ |
+| TV2 | Cart, PricingCalculator, voucher transaction | Ngay bây giờ |
+| TV3 | Store dashboard, kitchen, OrderRepository, Rules transition | Ngay bây giờ |
+| TV4 | VIETMAP SDK spike + MapRepository adapter | Ngay bây giờ, làm cổng kỹ thuật riêng |
+| Chung | Checkout integration, MockShippingProvider, notification, test và merge | Sau khi interfaces thống nhất |
+
+**Nguyên tắc giao việc:** TV1–TV3 không import VIETMAP SDK. TV4 không tự thay đổi Domain order state machine. Mọi module dùng chung `GeoPoint`, `ShippingQuote`, `MapRepository`, `ShippingProvider` và `OrderRepository` trước khi code.
 
 ---
 
@@ -968,12 +1026,13 @@ service cloud.firestore {
 | RK1 | **Không có Cloud Functions (Spark)**: tiền & voucher tính ở client | Client có thể khai báo sai tiền **lúc tạo đơn** (Rules không chứng minh được phép tính) | Firestore transaction đọc lại giá menu; Rules kiểm tra cấu trúc/kiểu/không âm + bất biến sau tạo; **thừa nhận hạn chế khi bảo vệ** (P0-1) |
 | RK2 | **Không server push**: local notification chỉ chạy khi app còn tiến trình | Không thông báo được khi app bị kill hoặc mất mạng | Kịch bản demo dùng app còn tiến trình; NFR-02 không cam kết khi kill; **không gọi là "push"** trong báo cáo (P0-3) |
 | RK3 | **Mock vận chuyển**: không gọi API thật | Không demo "shipper thật" | `ShippingProvider` interface sẵn sàng cắm API thật sau này (NFR-05); Mock mô phỏng đủ vòng đời |
-| RK4 | **Haversine là đường chim bay, không phải km đường bộ** | Phí ship chỉ là ước tính, không đúng như yêu cầu "km thực tế" | Ghi rõ "phí ước tính" trên UI và báo cáo; cho nhập km thủ công; hướng phát triển dùng Routes API (P2) |
-| RK5 | **Cloud Storage không dùng được trên Spark** (project mới) | Không upload ảnh món ăn | Ảnh mẫu đóng gói trong `assets`; Firestore lưu tên asset (D9) |
-| RK6 | **OSM tile công cộng** có chính sách sử dụng | Bị chặn nếu tải quá nhiều | Chỉ hiển thị ít tile, cache hợp lý, hiển thị attribution; bản đồ là Should-have (S1) |
-| RK7 | **Rules tốn document reads** (`get()`/`getAfter()`) | Vượt hạn mức 10 calls/request nếu rules sâu | Giới hạn số `get()` mỗi request; thiết kế dữ liệu phẳng; test bằng Emulator Suite |
-| RK8 | **Voucher `maxUses` dưới concurrency**: redemption ID = orderId chỉ chống 1 đơn dùng 2 lần, không chặn 2 đơn tranh lượt cuối | Vượt `maxUses` nếu chỉ dựa redemption | Transaction đọc Voucher + tạo Order/Redemption + tăng counter chung; Rules kiểm tra delta +1, liên kết cùng transaction và `<= maxUses`; kiểm chứng bằng Emulator Suite (7.4.3) trước khi demo |
-| RK9 | **Emulator không có GMS**: Google Sign-In không chạy | Mất khả năng demo Google login | Email/password là đường demo chính (FR-01) |
+| RK4 | **Haversine là đường chim bay, không phải km đường bộ** | Phí ship chỉ là ước tính, không đúng như yêu cầu "km thực tế" | Ghi rõ "phí ước tính" trên UI và báo cáo; cho nhập km thủ công; hướng phát triển dùng VIETMAP Route API qua backend proxy |
+| RK5 | **VIETMAP Tilemap key có quota** và key client có thể bị trích xuất | Bản đồ không tải được khi vượt quota hoặc key bị lộ | Chỉ bật Tilemap API, quota thấp, theo dõi Daily Report, không dùng Services key trong APK |
+| RK6 | **VIETMAP SDK tài liệu chủ yếu dùng XML MapView** | Tích hợp Compose có thể lệch API/lifecycle | Spike `AndroidView` trước; bọc SDK qua `VietmapMapAdapter`; fallback MapPreview mock |
+| RK7 | **Services key** cho Route/Matrix/Autocomplete/Place không được nhúng APK | Không thể dùng API thật trong Spark thuần | Để ngoài scope; nếu cần thì thêm backend proxy riêng ở hướng phát triển |
+| RK8 | **Rules tốn document reads** (`get()`/`getAfter()`) | Vượt hạn mức 10 calls/request nếu rules sâu | Giới hạn số `get()` mỗi request; thiết kế dữ liệu phẳng; test bằng Emulator Suite |
+| RK9 | **Voucher `maxUses` dưới concurrency**: redemption ID = orderId chỉ chống 1 đơn dùng 2 lần, không chặn 2 đơn tranh lượt cuối | Vượt `maxUses` nếu chỉ dựa redemption | Transaction đọc Voucher + tạo Order/Redemption + tăng counter chung; Rules kiểm tra delta +1, liên kết cùng transaction và `<= maxUses`; kiểm chứng bằng Emulator Suite |
+| RK10 | **Emulator không có GMS**: Google Sign-In không chạy | Mất khả năng demo Google login | Email/password là đường demo chính (FR-01) |
 
 **Giới hạn "không làm" (W1–W7 mục 2) được ghi lại trong báo cáo và slides để tránh câu hỏi "sao không có X".**
 
@@ -982,8 +1041,10 @@ service cloud.firestore {
 ## 11. Hướng phát triển (không thuộc scope đồ án)
 
 - Cắm API thật AhaMove/Lalamove: chuyển `MockShippingProvider` → `AhaMoveProvider` phía server (cần Blaze + key đối tác + webhook).
+- VIETMAP Route API v4 qua backend proxy để lấy khoảng cách đường bộ, thời gian và polyline.
+- VIETMAP Autocomplete + Place API v4 qua backend proxy cho địa chỉ giao hàng.
+- VIETMAP Matrix API v4 chỉ khi mở rộng sang nhiều quán, nhiều tài xế hoặc tối ưu điều phối.
 - Nâng cấp lên Cloud Functions khi có điều kiện billing: chuyển tính tiền, voucher, hoàn tiền, FCM server push về server.
-- Google Maps Routes API cho km đường bộ thực tế và lộ trình (thay haversine).
 - Một tài khoản chủ quán sở hữu nhiều chi nhánh (mô hình 1:N).
 - Cổng thanh toán thật (MoMo/VNPay) thay cho `paymentStatus` giả lập.
 - Upload ảnh món ăn thật (Cloud Storage / dịch vụ khác) thay ảnh mẫu đóng gói.
